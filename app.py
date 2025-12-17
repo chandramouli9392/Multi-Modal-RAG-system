@@ -1,18 +1,15 @@
-import chromadb
-import pandas as pd
 import streamlit as st
-from langchain_chroma import Chroma
-from chromadb.config import Settings
-from langchain_community.llms import Ollama
+import pandas as pd
 from langchain.docstore.document import Document
+from langchain_community.llms import Ollama
 from langchain.chains import RetrievalQA
+from langchain_community.vectorstores import FAISS
 from sentence_transformers import SentenceTransformer
 import warnings
 
 warnings.filterwarnings("ignore")
 
 # ---------------- CONFIG ----------------
-COLLECTION_NAME = "csv_embeddings"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 LLM_MODEL = "deepseek-r1:14b"
 
@@ -21,8 +18,8 @@ st.title("📄 Question Answering using RAG with User Uploaded CSV")
 
 # ---------------- EMBEDDING WRAPPER ----------------
 class SentenceTransformerEmbedding:
-    def __init__(self, model):
-        self.model = model
+    def __init__(self):
+        self.model = SentenceTransformer(EMBEDDING_MODEL)
 
     def embed_documents(self, texts):
         return self.model.encode(texts).tolist()
@@ -30,15 +27,7 @@ class SentenceTransformerEmbedding:
     def embed_query(self, text):
         return self.model.encode(text).tolist()
 
-# ---------------- CHROMA SINGLETON ----------------
-def initialize_chroma_client():
-    if "chroma_client" not in st.session_state:
-        st.session_state.chroma_client = chromadb.Client(
-            Settings(anonymized_telemetry=False)
-        )
-    return st.session_state.chroma_client
-
-# ---------------- LOAD CSV & CREATE VECTOR STORE ----------------
+# ---------------- LOAD CSV & BUILD FAISS ----------------
 def load_data_to_vector_store(uploaded_file):
     df = pd.read_csv(uploaded_file)
 
@@ -52,25 +41,9 @@ def load_data_to_vector_store(uploaded_file):
         if text.strip()
     ]
 
-    embedder = SentenceTransformerEmbedding(
-        SentenceTransformer(EMBEDDING_MODEL)
-    )
+    embedder = SentenceTransformerEmbedding()
 
-    client = initialize_chroma_client()
-
-    # Remove old collection if exists (important)
-    try:
-        client.delete_collection(COLLECTION_NAME)
-    except:
-        pass
-
-    vector_store = Chroma(
-        client=client,
-        collection_name=COLLECTION_NAME,
-        embedding_function=embedder,
-    )
-
-    vector_store.add_documents(documents)
+    vector_store = FAISS.from_documents(documents, embedder)
     return vector_store, df, text_column
 
 # ---------------- RAG QA ----------------
@@ -91,24 +64,24 @@ def answer_query_with_rag(vector_store, query):
 tab1, tab2 = st.tabs(["📤 Upload CSV", "💬 Question Answering"])
 
 with tab1:
-    st.subheader("Upload CSV to Vector Database")
+    st.subheader("Upload CSV to Vector Store")
     uploaded_file = st.file_uploader("Upload a CSV file", type="csv")
 
     if uploaded_file:
-        with st.spinner("Indexing CSV into vector database..."):
+        with st.spinner("Indexing CSV..."):
             vector_store, df, text_column = load_data_to_vector_store(uploaded_file)
             st.session_state.vector_store = vector_store
-            st.success("✅ CSV successfully indexed!")
+            st.success("✅ CSV indexed successfully!")
             st.caption(f"Detected text column: `{text_column}`")
             st.dataframe(df.head())
 
 with tab2:
-    st.subheader("Ask Questions from the CSV using RAG")
+    st.subheader("Ask Questions from the CSV")
 
     if "vector_store" not in st.session_state:
-        st.warning("⚠️ Please upload a CSV file first.")
+        st.warning("⚠️ Please upload a CSV first.")
     else:
-        query = st.chat_input("Ask a question about the uploaded CSV")
+        query = st.chat_input("Ask a question")
 
         if query:
             with st.spinner("Generating answer..."):
