@@ -30,6 +30,7 @@ class SentenceTransformerEmbedding:
 def load_data_to_vector_store(uploaded_file):
     df = pd.read_csv(uploaded_file)
 
+    # Automatically detect first text column
     text_column = df.select_dtypes(include=["object"]).columns[0]
     texts = df[text_column].astype(str).tolist()
 
@@ -40,6 +41,7 @@ def load_data_to_vector_store(uploaded_file):
     ]
 
     embeddings = SentenceTransformerEmbedding()
+
     vector_store = InMemoryVectorStore.from_documents(
         documents, embedding=embeddings
     )
@@ -50,13 +52,14 @@ def load_data_to_vector_store(uploaded_file):
 def answer_query_with_rag(vector_store, query):
     retriever = vector_store.as_retriever(search_kwargs={"k": 5})
 
-    context_docs = retriever.invoke(query)
-    context = "\n\n".join([d.page_content for d in context_docs])
+    retrieved_docs = retriever.invoke(query)
+    context = "\n\n".join([doc.page_content for doc in retrieved_docs])
 
     prompt = ChatPromptTemplate.from_template(
         """
-        Use ONLY the context below to answer.
-        If you don't know, say "I don't know".
+        You are a helpful assistant.
+        Use ONLY the context below to answer the question.
+        If the answer is not in the context, say "I don't know".
 
         Context:
         {context}
@@ -70,20 +73,25 @@ def answer_query_with_rag(vector_store, query):
 
     llm = HuggingFaceHub(
         repo_id="google/flan-t5-base",
+        huggingfacehub_api_token=st.secrets["HF_TOKEN"],
         model_kwargs={"temperature": 0.2, "max_length": 256}
     )
 
-    formatted_prompt = prompt.format(context=context, question=query)
-    return llm.invoke(formatted_prompt)
+    final_prompt = prompt.format(
+        context=context,
+        question=query
+    )
+
+    return llm.invoke(final_prompt)
 
 # ---------------- STREAMLIT UI ----------------
 tab1, tab2 = st.tabs(["📤 Upload CSV", "💬 Question Answering"])
 
 with tab1:
-    uploaded_file = st.file_uploader("Upload CSV", type="csv")
+    uploaded_file = st.file_uploader("Upload a CSV file", type="csv")
 
     if uploaded_file:
-        with st.spinner("Indexing CSV..."):
+        with st.spinner("Indexing CSV into vector store..."):
             vector_store, df, text_column = load_data_to_vector_store(uploaded_file)
             st.session_state.vector_store = vector_store
             st.success("✅ CSV indexed successfully")
@@ -94,7 +102,7 @@ with tab2:
     if "vector_store" not in st.session_state:
         st.warning("⚠️ Please upload a CSV first")
     else:
-        query = st.chat_input("Ask a question")
+        query = st.chat_input("Ask a question about the CSV data")
 
         if query:
             with st.spinner("Generating answer..."):
@@ -102,5 +110,6 @@ with tab2:
                     st.session_state.vector_store,
                     query
                 )
+
             st.chat_message("user").write(query)
             st.chat_message("assistant").write(answer)
