@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 from langchain.docstore.document import Document
 from langchain.chains import RetrievalQA
-from langchain_community.vectorstores import FAISS
 from langchain_community.llms import HuggingFaceHub
+from langchain_community.vectorstores import InMemoryVectorStore
 from sentence_transformers import SentenceTransformer
 import warnings
 
@@ -26,10 +26,11 @@ class SentenceTransformerEmbedding:
     def embed_query(self, text):
         return self.model.encode(text).tolist()
 
-# ---------------- LOAD CSV ----------------
+# ---------------- LOAD CSV & BUILD VECTOR STORE ----------------
 def load_data_to_vector_store(uploaded_file):
     df = pd.read_csv(uploaded_file)
 
+    # Auto-detect text column
     text_column = df.select_dtypes(include=["object"]).columns[0]
     texts = df[text_column].astype(str).tolist()
 
@@ -39,8 +40,10 @@ def load_data_to_vector_store(uploaded_file):
         if text.strip()
     ]
 
-    embedder = SentenceTransformerEmbedding()
-    vector_store = FAISS.from_documents(documents, embedder)
+    embeddings = SentenceTransformerEmbedding()
+    vector_store = InMemoryVectorStore.from_documents(
+        documents, embedding=embeddings
+    )
 
     return vector_store, df, text_column
 
@@ -61,7 +64,7 @@ def answer_query_with_rag(vector_store, query):
 
     return qa.run(query)
 
-# ---------------- UI ----------------
+# ---------------- STREAMLIT UI ----------------
 tab1, tab2 = st.tabs(["📤 Upload CSV", "💬 Question Answering"])
 
 with tab1:
