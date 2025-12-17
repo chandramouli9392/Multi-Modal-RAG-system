@@ -2,5 +2,6 @@ streamlit
 pandas
 langchain
 langchain-community
+langchain-core
 sentence-transformers
 huggingface_hub
