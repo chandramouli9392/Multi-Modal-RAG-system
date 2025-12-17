@@ -1,7 +1,5 @@
 streamlit
 pandas
-langchain
+sentence-transformers
 langchain-community
 langchain-core
-sentence-transformers
-huggingface_hub
