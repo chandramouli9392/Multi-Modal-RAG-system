@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
 from langchain_core.documents import Document
-from langchain.chains import RetrievalQA
-from langchain_community.llms import HuggingFaceHub
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_community.vectorstores import InMemoryVectorStore
+from langchain_community.llms import HuggingFaceHub
 from sentence_transformers import SentenceTransformer
 import warnings
 
@@ -40,31 +40,43 @@ def load_data_to_vector_store(uploaded_file):
     ]
 
     embeddings = SentenceTransformerEmbedding()
-
     vector_store = InMemoryVectorStore.from_documents(
         documents, embedding=embeddings
     )
 
     return vector_store, df, text_column
 
-# ---------------- RAG QA ----------------
+# ---------------- RAG PIPELINE ----------------
 def answer_query_with_rag(vector_store, query):
     retriever = vector_store.as_retriever(search_kwargs={"k": 5})
+
+    context_docs = retriever.invoke(query)
+    context = "\n\n".join([d.page_content for d in context_docs])
+
+    prompt = ChatPromptTemplate.from_template(
+        """
+        Use ONLY the context below to answer.
+        If you don't know, say "I don't know".
+
+        Context:
+        {context}
+
+        Question:
+        {question}
+
+        Answer:
+        """
+    )
 
     llm = HuggingFaceHub(
         repo_id="google/flan-t5-base",
         model_kwargs={"temperature": 0.2, "max_length": 256}
     )
 
-    qa = RetrievalQA.from_chain_type(
-        llm=llm,
-        retriever=retriever,
-        chain_type="stuff",
-    )
+    formatted_prompt = prompt.format(context=context, question=query)
+    return llm.invoke(formatted_prompt)
 
-    return qa.run(query)
-
-# ---------------- UI ----------------
+# ---------------- STREAMLIT UI ----------------
 tab1, tab2 = st.tabs(["📤 Upload CSV", "💬 Question Answering"])
 
 with tab1:
